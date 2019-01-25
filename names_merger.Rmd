@@ -1,0 +1,45 @@
+---
+title: "Name merge"
+author: "Brennan Donnell"
+date: "10/9/2018"
+output: html_document
+---
+
+```{r libraries}
+library(readr)
+library(data.table)
+```
+
+```{r opens}
+data <- fread('/Users/brennandonnell/Documents/grad_school/data900/sql/names/yob1880.txt',
+              sep=',', col.names = c('babyname','m/f','frequency'),
+              colClasses = list(character=1:2, numeric=3))
+
+```
+
+the following cell was taken from [stack overflow](https://stackoverflow.com/questions/39937310/creating-a-data-frame-with-the-contents-of-multiple-txt-files)
+```{r merging_not_mine}
+# Put in your actual path where the text files are saved
+mypath = "/Users/brennandonnell/Documents/grad_school/data900/sql/names/"
+setwd(mypath)
+
+# Create list of text files
+txt_files_ls = list.files(path=mypath, pattern="*.txt") 
+# Read the files in, assuming comma separator
+txt_files_df <- lapply(txt_files_ls, function(x) {read.table(file = x, header = T, sep =",",
+                                                             col.names = c('babyname','m/f','frequency'),
+                                                             colClasses = list(character=1:2, numeric=3))})
+# Combine them
+combined_df <- do.call("rbind", lapply(txt_files_df, as.data.frame))
+```
+the following was also taken from [stack overflow](https://stackoverflow.com/questions/41006985/importing-multiple-csv-files-into-r-and-adding-a-new-column-with-file-name)
+and that worked!
+```{r modcols_import}
+file_names <- dir(path= '/Users/brennandonnell/Documents/grad_school/data900/sql/names',pattern = "yob" ) 
+df <- do.call(rbind, lapply(file_names, function(x) cbind(fread(x, sep=',', col.names = c('babyname','m/f','frequency'),
+              colClasses = list(character=1:2, numeric=3)), year=strsplit(strsplit(x,'yob')[[1]][[2]], '.txt')[[1]])))
+```
+
+```{r write_to_csv}
+write.csv(df, file = '/Users/brennandonnell/Documents/grad_school/data900/sql/names/fullnames.csv', sep=',')
+```

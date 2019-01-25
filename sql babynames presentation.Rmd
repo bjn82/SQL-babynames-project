@@ -1,0 +1,173 @@
+---
+title: "SQL babynames presentation"
+author: "Brennan Donnell"
+date: "10/9/2018"
+output: ioslides_presentation
+---
+## Introduction: 
+Data exploration in SQL and R on the *Babynames* data set. 
+
+(Also, an exploration in *ioslides_presentation* in RMarkdown)
+This is still a work in progress, and due to frame limitations, I can't show everything. 
+
+```{r libraries&login, warning=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+library(data.table)
+library(stringr)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(dbplyr)
+library(DBI)
+library(RMariaDB)
+library(devtools)
+library(odbc)
+library(readr)
+library(RODBC)
+uname <- 'bdonnell'
+pword <- '1864'
+df <- fread('/Users/brennandonnell/projects/GitHub/SQL-babynames-project/fullnames.csv', sep=',', 
+            drop=1, colClasses = list(character=1:2, numeric=3:4))
+df$length <- str_length(unlist(df[[1]]))
+```
+
+## Prelude to SQL: making a big file
+Before loading all of the data into MariaDB, I had to merge it all together and make a column for year. 
+I accomplished this in the following cell. Source: [Stack Overflow](https://stackoverflow.com/questions/41006985/importing-multiple-csv-files-into-r-and-adding-a-new-column-with-file-name)
+```{r modcols_import, eval=FALSE, warning=FALSE, message=FALSE,error=FALSE}
+path <- 
+  '/Users/brennandonnell/projects/GitHub/SQL-babynames-project/'
+file_names <- 
+  dir(path, 
+      pattern = "yob" ) 
+df <- do.call(
+  rbind, 
+  lapply(file_names, function(x) cbind(fread(
+           x, sep=',', 
+           col.names = c('babyname','m/f','frequency'),
+           colClasses = list(character=1:2, numeric=3)), 
+           year=strsplit(strsplit(x,'yob')[[1]][[2]], '.txt')[[1]])))
+df$length <- str_length(unlist(df[[1]]))
+write.csv(df, paste0(path,'/fullnames2.csv'), sep=',')
+```
+
+
+## Loading mariadb in
+Loading Mariadb into mySQL and R. 
+This uses several libraries: 
+
+>- DBI
+>- dplyr
+>- dbplyr
+>- RMariaDB
+>-  odbc
+
+```{r load_mariadb}
+con <- dbConnect(
+  drv = RMariaDB::MariaDB(), 
+  dbname = 'Babynames',
+  username = uname,
+  password = pword
+)
+```
+
+## Creating the schema
+this is just the framework for how to create a table in SQL. 
+How I actually did it was by importing the full CSV into Sequel Pro through *file -> import*
+```{sql, connection=con, max.print=5, tap.cap = "Creating a table"}
+CREATE TABLE demonoo0 (
+  baby_name CHAR(15),
+  gender CHAR(1),
+  frequency INT(11),
+  year INT
+)
+```
+
+## Query 1
+
+For Query 1, we searched for the most popular male name and female name for that person’s year of birth. The following cell is a small sample of it. 
+```{r mariadb_query1}
+rs <- dbSendQuery(con, 
+"SELECT babyname,gender, MAX(frequency), year 
+FROM newnames 
+GROUP BY gender, year 
+ORDER BY year;")
+head(dbFetch(rs))
+
+dbClearResult(rs)
+#dbDisconnect(con)
+```
+
+## Query 1: the SQL
+It is possible in R Markdown to create chunks of SQL code. This is the same code as the previous slide, just done directly in SQL. 
+```{sql, connection=con, max.print = 3, tab.cap="Most popular name by year"}
+SELECT babyname,gender, MAX(frequency), year 
+FROM newnames 
+GROUP BY gender, year 
+ORDER BY year;
+```
+
+
+## Query 2
+
+For Query 2, we searched for the popularity of a given person’s name for each year from 1879 to 2017. 
+
+Naturally, I picked my own *perfect* name, to see how many people have the same name as mine. 
+
+```{r mariadb_query2}
+rs <- dbSendQuery(con, 
+"SELECT babyname, gender, frequency, year 
+FROM newnames WHERE babyname = 'brennan' AND gender = 'm' 
+ORDER BY year;")
+tail(dbFetch(rs), n=3)
+dbClearResult(rs)
+```
+
+## Query 2: SQL
+Again, R Notebooks and R Markdown have the ability to run SQL code. This is the same code as the cell above. 
+```{sql, connection=con, max.print = 3, tab.cap="Popularity of Brennan by year"}
+SELECT babyname, gender, frequency, year FROM newnames 
+WHERE babyname = 'brennan' AND gender = 'm' 
+ORDER BY year;
+```
+
+## Plotting: 
+For the following trick, we shall examine some visualizations. But first, we have to group the data. 
+```{r plot_1_group}
+by_brennan <- df %>%
+  group_by(year) %>% 
+  filter(babyname == "Brennan") 
+```
+
+## Plotting:
+```{r plot_1_plot, message=FALSE, echo=FALSE}
+p <- ggplot(data=by_brennan, aes(x=by_brennan$year, y=by_brennan$frequency, fill=by_brennan$`m/f`)) + geom_bar(stat='identity', 
+                                                                                                                #fill="lightblue",
+                                                                                                                position=position_dodge())
+# p <- p+scale_color_manual(values=c("#E69F00", "#56B4E9"))
+p <- p + labs(title='Popularity of my name by year', x='Year', y='Frequency')
+p <- p + theme_minimal()
+ggplotly(p)
+```
+
+## More plotting
+look at name lengths
+```{r plot_2_lengths}
+by_length <- df %>% 
+  filter(length >= 10) %>% 
+  group_by(year) %>% 
+  summarise(n = n())
+```
+
+## more plotting
+```{r plot_2_plot, message=FALSE, echo=FALSE}
+p <- ggplot(data=by_length, aes(x=by_length$year, y=by_length$n)) + geom_bar(stat='identity', fill="lightblue", position=position_dodge())
+#p <- p+scale_color_manual(values=c("#E69F00", "#56B4E9"))
+p <- p + labs(title='Number of names with at least ten letters', x='Year', y='Number of names')
+p <- p + theme_minimal()
+ggplotly(p)
+```
+
+
+```{r conclose, echo=FALSE}
+dbDisconnect(con)
+```
